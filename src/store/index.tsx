@@ -226,7 +226,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setMembers(prev => [...prev, newMember]);
     
     if (supabase) {
-      await supabase.from('members').insert([{
+      const { error } = await supabase.from('members').insert([{
         member_id: id,
         full_name: m.fullName,
         phone: m.phone,
@@ -244,10 +244,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         expiry_date: m.expiryDate,
         status: 'active'
       }]);
+
+      if (error) {
+        console.error("Member Insert Error:", error);
+        alert(`Failed to add member to database: ${error.message}\n\nPlease make sure you have run the setup SQL in Supabase.`);
+        // Rollback
+        setMembers(prev => prev.filter(mb => mb.id !== id));
+        return; // Don't proceed to payment if member insert fails
+      }
     }
     
     if (paymentInfo.amountPaid > 0) {
-      addPayment({
+      await addPayment({
         memberId: id,
         amount: paymentInfo.amountPaid,
         date: format(new Date(), 'yyyy-MM-dd'),
@@ -258,6 +266,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   };
 
   const updateMember = async (id: string, updates: Partial<Member>) => {
+    // Save previous state for rollback
+    const previousMembers = [...members];
     // Optimistic UI Update
     setMembers(prev => prev.map(m => m.id === id ? { ...m, ...updates } : m));
     
@@ -279,14 +289,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (updates.expiryDate !== undefined) dbUpdates.expiry_date = updates.expiryDate;
       if (updates.status !== undefined) dbUpdates.status = updates.status;
 
-      await supabase.from('members').update(dbUpdates).eq('member_id', id);
+      const { error } = await supabase.from('members').update(dbUpdates).eq('member_id', id);
+      if (error) {
+        console.error("Member Update Error:", error);
+        alert(`Failed to update member in database: ${error.message}`);
+        setMembers(previousMembers); // Rollback
+      }
     }
   };
 
   const deleteMember = async (id: string) => {
+    const previousMembers = [...members];
     setMembers(prev => prev.filter(m => m.id !== id));
     if (supabase) {
-      await supabase.from('members').delete().eq('member_id', id);
+      const { error } = await supabase.from('members').delete().eq('member_id', id);
+      if (error) {
+        console.error("Member Delete Error:", error);
+        alert(`Failed to delete member from database: ${error.message}`);
+        setMembers(previousMembers); // Rollback
+      }
     }
   };
 
@@ -296,7 +317,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setPayments(prev => [...prev, newPayment]);
     
     if (supabase) {
-      const { data } = await supabase.from('payments').insert([{
+      const { data, error } = await supabase.from('payments').insert([{
         member_id: p.memberId,
         amount: p.amount,
         date: p.date,
@@ -304,7 +325,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         type: p.type
       }]).select().single();
       
-      if (data) {
+      if (error) {
+        console.error("Payment Insert Error:", error);
+        alert(`Failed to add payment: ${error.message}`);
+        setPayments(prev => prev.filter(payment => payment.id !== tempId)); // Rollback
+      } else if (data) {
         setPayments(prev => prev.map(payment => payment.id === tempId ? { ...payment, id: data.id } : payment));
       }
     }
@@ -316,14 +341,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setExpenses(prev => [...prev, newExpense]);
     
     if (supabase) {
-      const { data } = await supabase.from('expenses').insert([{
+      const { data, error } = await supabase.from('expenses').insert([{
         amount: e.amount,
         date: e.date,
         category: e.category,
         description: e.description
       }]).select().single();
       
-      if (data) {
+      if (error) {
+        console.error("Expense Insert Error:", error);
+        alert(`Failed to add expense: ${error.message}`);
+        setExpenses(prev => prev.filter(ex => ex.id !== tempId)); // Rollback
+      } else if (data) {
         setExpenses(prev => prev.map(ex => ex.id === tempId ? { ...ex, id: data.id } : ex));
       }
     }
