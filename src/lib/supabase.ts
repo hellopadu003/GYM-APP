@@ -11,7 +11,12 @@ if (supabaseUrl && supabaseAnonKey) {
   try {
     // Add protocol if missing
     if (!supabaseUrl.startsWith('http')) {
-      supabaseUrl = `https://${supabaseUrl}`;
+      // If it's just a project ID without dots, append .supabase.co
+      if (!supabaseUrl.includes('.')) {
+        supabaseUrl = `https://${supabaseUrl}.supabase.co`;
+      } else {
+        supabaseUrl = `https://${supabaseUrl}`;
+      }
     }
     
     // Sanitize the URL in case the user accidentally copied the /rest/v1/ path
