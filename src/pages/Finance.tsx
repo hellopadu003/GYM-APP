@@ -146,7 +146,7 @@ export function Finance() {
           <div className="flex-1 overflow-y-auto p-4 sm:p-5 bg-slate-50/30">
             {showAddExpense && (
               <form onSubmit={handleAddExpense} className="mb-6 p-4 bg-white rounded-xl shadow-sm border border-slate-200">
-                <div className="grid grid-cols-2 gap-4 mb-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
                   <div>
                     <label className="block text-xs text-slate-500 mb-1">Amount</label>
                     <input autoFocus required type="number" value={expenseData.amount} onChange={e => setExpenseData({...expenseData, amount: e.target.value})} className="w-full px-3 py-2 border rounded-lg focus:ring-indigo-600 focus:border-indigo-600 outline-none" />
@@ -155,11 +155,11 @@ export function Finance() {
                     <label className="block text-xs text-slate-500 mb-1">Date</label>
                     <input required type="date" value={expenseData.date} onChange={e => setExpenseData({...expenseData, date: e.target.value})} className="w-full px-3 py-2 border rounded-lg focus:ring-indigo-600 focus:border-indigo-600 outline-none" />
                   </div>
-                  <div className="col-span-2">
+                  <div className="col-span-1 sm:col-span-2">
                     <label className="block text-xs text-slate-500 mb-1">Category (e.g. Rent, Salary)</label>
                     <input required type="text" value={expenseData.category} onChange={e => setExpenseData({...expenseData, category: e.target.value})} className="w-full px-3 py-2 border rounded-lg focus:ring-indigo-600 focus:border-indigo-600 outline-none" />
                   </div>
-                  <div className="col-span-2">
+                  <div className="col-span-1 sm:col-span-2">
                     <label className="block text-xs text-slate-500 mb-1">Description (Optional)</label>
                     <input type="text" value={expenseData.description} onChange={e => setExpenseData({...expenseData, description: e.target.value})} className="w-full px-3 py-2 border rounded-lg focus:ring-indigo-600 focus:border-indigo-600 outline-none" />
                   </div>

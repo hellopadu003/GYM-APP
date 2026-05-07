@@ -16,6 +16,24 @@ import { Finance } from './pages/Finance';
 function MainApp() {
   const { currentUser, login } = useAppContext();
   const [currentPage, setCurrentPage] = useState('dashboard');
+  const [email, setEmail] = useState('admin@admin.com');
+  const [password, setPassword] = useState('admin123');
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleLogin = async (e: any) => {
+    e.preventDefault();
+    setIsLoading(true);
+    setError('');
+    
+    try {
+      await login(email, password);
+    } catch (err: any) {
+      setError(err.message || 'Login failed. Please check your credentials.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   if (!currentUser) {
     return (
@@ -29,20 +47,41 @@ function MainApp() {
           </h1>
           <p className="text-slate-500 mb-8">Sign in to continue</p>
           
-          <div className="space-y-4">
+          <form onSubmit={handleLogin} className="space-y-4 text-left">
+            {error && <div className="p-3 bg-red-50 text-red-600 text-sm rounded-lg">{error}</div>}
+            
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
+              <input 
+                type="email" 
+                required 
+                value={email} 
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full px-4 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                placeholder="admin@example.com"
+              />
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Password</label>
+              <input 
+                type="password" 
+                required 
+                value={password} 
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full px-4 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                placeholder="••••••••"
+              />
+            </div>
+
             <button 
-              onClick={() => login('owner')}
-              className="w-full py-3 px-4 bg-slate-900 text-white rounded-xl hover:bg-slate-800 transition-colors font-medium"
+              type="submit"
+              disabled={isLoading}
+              className="w-full py-3 px-4 bg-slate-900 text-white rounded-xl hover:bg-slate-800 transition-colors font-medium mt-6 flex justify-center items-center disabled:opacity-70"
             >
-              Login as Owner
+              {isLoading ? 'Signing In...' : 'Sign In'}
             </button>
-            <button 
-              onClick={() => login('staff')}
-              className="w-full py-3 px-4 bg-white border border-slate-200 text-slate-700 rounded-xl hover:bg-slate-50 transition-colors font-medium"
-            >
-              Login as Staff
-            </button>
-          </div>
+          </form>
         </div>
       </div>
     );

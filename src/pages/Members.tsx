@@ -54,13 +54,13 @@ export function Members() {
           />
         </div>
         
-        <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2 w-full sm:w-auto">
-          <div className="flex space-x-2 w-full sm:w-auto">
+        <div className="flex flex-col sm:flex-row space-y-3 sm:space-y-0 sm:space-x-3 w-full sm:w-auto overflow-hidden">
+          <div className="flex space-x-2 w-full sm:w-auto overflow-x-auto pb-1 sm:pb-0 scrollbar-hide shrink-0">
             {['all', 'active', 'expired', 'inactive'].map(status => (
               <button
                 key={status}
                 onClick={() => setFilterStatus(status as any)}
-                className={`px-4 py-2 rounded-xl text-sm font-medium capitalize flex-1 sm:flex-none transition-colors ${
+                className={`px-4 py-2 rounded-xl text-sm font-medium capitalize whitespace-nowrap transition-colors ${
                   filterStatus === status 
                     ? 'bg-slate-800 text-white' 
                     : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
@@ -72,7 +72,7 @@ export function Members() {
           </div>
           <button 
             onClick={exportToCSV}
-            className="flex items-center justify-center px-4 py-2 bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-100 transition-colors"
+            className="flex items-center justify-center px-4 py-2 bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-100 transition-colors whitespace-nowrap"
           >
             <Download className="w-4 h-4 mr-2" />
             <span className="text-sm font-bold">Export CSV</span>

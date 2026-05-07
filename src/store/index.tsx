@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { format, addMonths, addDays, isPast, isToday } from 'date-fns';
+import { supabase } from '../lib/supabase';
 
 export type Role = 'owner' | 'staff';
 export type PaymentMethod = 'Cash' | 'bKash' | 'Nagad' | 'Upay';
@@ -59,8 +60,8 @@ interface AppContextType {
   language: 'en' | 'bn';
   setLanguage: (lang: 'en' | 'bn') => void;
   currentUser: User | null;
-  login: (role: Role) => void;
-  logout: () => void;
+  login: (email: string, password: string) => Promise<void>;
+  logout: () => Promise<void>;
   
   // Data
   members: Member[];
@@ -76,77 +77,174 @@ interface AppContextType {
   
   attendance: AttendanceRecord[];
   markAttendance: (memberId: string, status: 'present' | 'absent', date: string) => void;
+  
+  loading: boolean;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
-const demoMembers: Member[] = [
-  {
-    id: "GYM-1001",
-    fullName: "Rahim Uddin",
-    phone: "01711000000",
-    isWhatsApp: true,
-    address: "Gulshan, Dhaka",
-    age: "28",
-    gender: "Male",
-    joinDate: format(new Date(), 'yyyy-MM-dd'),
-    bloodGroup: "O+",
-    planType: "monthly",
-    monthlyFee: 2000,
-    admissionFee: 1000,
-    discount: 0,
-    expiryDate: format(addMonths(new Date(), 1), 'yyyy-MM-dd'),
-    status: "active"
-  },
-  {
-    id: "GYM-1002",
-    fullName: "Karim Hassan",
-    phone: "01811000000",
-    isWhatsApp: false,
-    address: "Banani, Dhaka",
-    age: "34",
-    gender: "Male",
-    joinDate: format(addDays(new Date(), -40), 'yyyy-MM-dd'),
-    bloodGroup: "A+",
-    planType: "monthly",
-    monthlyFee: 2000,
-    admissionFee: 1000,
-    discount: 200,
-    expiryDate: format(addDays(new Date(), -10), 'yyyy-MM-dd'),
-    status: "expired"
-  }
-];
-
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [language, setLanguage] = useState<'en' | 'bn'>('en');
-  const [currentUser, setCurrentUser] = useState<User | null>({ role: 'owner', name: 'Admin' });
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
   
-  const [members, setMembers] = useState<Member[]>(demoMembers);
-  const [payments, setPayments] = useState<Payment[]>([
-    { id: '1', memberId: 'GYM-1001', amount: 3000, date: format(new Date(), 'yyyy-MM-dd'), method: 'Cash', type: 'admission' },
-    { id: '2', memberId: 'GYM-1002', amount: 2800, date: format(addDays(new Date(), -40), 'yyyy-MM-dd'), method: 'bKash', type: 'admission' }
-  ]);
+  const [members, setMembers] = useState<Member[]>([]);
+  const [payments, setPayments] = useState<Payment[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
 
-  // Periodically check statuses
+  // Auth & Initial Data Fetch
   useEffect(() => {
-    setMembers(prev => prev.map(m => {
-      if (isPast(new Date(m.expiryDate)) && !isToday(new Date(m.expiryDate))) {
-        return { ...m, status: 'expired' };
+    if (!supabase) {
+      console.warn('Supabase not configured. Please add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to environment variables.');
+      setLoading(false);
+      return;
+    }
+
+    // Check auth status
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        // Determine role based on email or metadata
+        const role = session.user.email?.includes('staff') ? 'staff' : 'owner';
+        setCurrentUser({ role: role as Role, name: session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'User' });
+        fetchData();
+      } else {
+        setLoading(false);
       }
-      return m;
-    }));
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        const role = session.user.email?.includes('staff') ? 'staff' : 'owner';
+        setCurrentUser({ role: role as Role, name: session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'User' });
+        fetchData();
+      } else {
+        setCurrentUser(null);
+      }
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
-  const addMember = (m: Omit<Member, 'id' | 'status'>, paymentInfo: { amountPaid: number, method: PaymentMethod }) => {
-    const id = `GYM-${1000 + members.length + 1}`;
-    const newMember: Member = {
-      ...m,
-      id,
-      status: 'active'
-    };
-    setMembers([...members, newMember]);
+  const fetchData = async () => {
+    if (!supabase) return;
+
+    try {
+      setLoading(true);
+        // Using Promise.all to fetch all needed data concurrently
+        const [
+          { data: membersData },
+          { data: paymentsData },
+          { data: expensesData },
+          { data: attendanceData }
+        ] = await Promise.all([
+          supabase.from('members').select('*'),
+          supabase.from('payments').select('*'),
+          supabase.from('expenses').select('*'),
+          supabase.from('attendance').select('*')
+        ]);
+
+        if (membersData) {
+          // Map database structure to local app structure
+          const mappedMembers: Member[] = membersData.map(m => ({
+            id: m.member_id,
+            fullName: m.full_name,
+            phone: m.phone,
+            isWhatsApp: m.is_whatsapp,
+            address: m.address,
+            age: m.age?.toString() || '',
+            gender: m.gender,
+            joinDate: m.join_date,
+            bloodGroup: m.blood_group,
+            photoUrl: m.photo_url || undefined,
+            planType: m.plan_type,
+            monthlyFee: m.monthly_fee,
+            admissionFee: m.admission_fee || 0,
+            discount: m.discount,
+            expiryDate: m.expiry_date,
+            status: m.status
+          }));
+          
+          // Check for expired members
+          const updatedMembers = mappedMembers.map(m => {
+            if (m.status === 'active' && isPast(new Date(m.expiryDate)) && !isToday(new Date(m.expiryDate))) {
+              const updated = { ...m, status: 'expired' as const };
+              // Fire async update but don't block
+              supabase.from('members').update({ status: 'expired' }).eq('member_id', m.id);
+              return updated;
+            }
+            return m;
+          });
+          
+          setMembers(updatedMembers);
+        }
+
+        if (paymentsData) {
+          setPayments(paymentsData.map(p => ({
+            id: p.id,
+            memberId: p.member_id,
+            amount: p.amount,
+            date: p.date,
+            method: p.method,
+            type: p.type
+          })));
+        }
+
+        if (expensesData) {
+          setExpenses(expensesData.map(e => ({
+            id: e.id,
+            amount: e.amount,
+            date: e.date,
+            category: e.category,
+            description: e.description || ''
+          })));
+        }
+
+        if (attendanceData) {
+          setAttendance(attendanceData.map(a => ({
+            id: a.id,
+            memberId: a.member_id,
+            date: a.date,
+            status: a.status
+          })));
+        }
+      } catch (error) {
+        console.error('Error fetching data from Supabase:', error);
+      } finally {
+        setLoading(false);
+      }
+  };
+
+  const addMember = async (m: Omit<Member, 'id' | 'status'>, paymentInfo: { amountPaid: number, method: PaymentMethod }) => {
+    // Generate a quick sequential ID or use a UUID. Here we maintain GYM-100X format.
+    const numericPart = members.length > 0 ? Math.max(...members.map(mb => parseInt(mb.id.replace('GYM-', '') || '1000'))) : 1000;
+    const id = `GYM-${numericPart + 1}`;
+    
+    const newMember: Member = { ...m, id, status: 'active' };
+    
+    // Optimistic UI Update
+    setMembers(prev => [...prev, newMember]);
+    
+    if (supabase) {
+      await supabase.from('members').insert([{
+        member_id: id,
+        full_name: m.fullName,
+        phone: m.phone,
+        is_whatsapp: m.isWhatsApp,
+        address: m.address,
+        age: parseInt(m.age) || null,
+        gender: m.gender,
+        join_date: m.joinDate,
+        blood_group: m.bloodGroup,
+        photo_url: m.photoUrl,
+        plan_type: m.planType,
+        monthly_fee: m.monthlyFee,
+        admission_fee: m.admissionFee,
+        discount: m.discount,
+        expiry_date: m.expiryDate,
+        status: 'active'
+      }]);
+    }
     
     if (paymentInfo.amountPaid > 0) {
       addPayment({
@@ -159,36 +257,128 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const updateMember = (id: string, updates: Partial<Member>) => {
-    setMembers(members.map(m => m.id === id ? { ...m, ...updates } : m));
-  };
+  const updateMember = async (id: string, updates: Partial<Member>) => {
+    // Optimistic UI Update
+    setMembers(prev => prev.map(m => m.id === id ? { ...m, ...updates } : m));
+    
+    if (supabase) {
+      const dbUpdates: any = {};
+      if (updates.fullName !== undefined) dbUpdates.full_name = updates.fullName;
+      if (updates.phone !== undefined) dbUpdates.phone = updates.phone;
+      if (updates.isWhatsApp !== undefined) dbUpdates.is_whatsapp = updates.isWhatsApp;
+      if (updates.address !== undefined) dbUpdates.address = updates.address;
+      if (updates.age !== undefined) dbUpdates.age = parseInt(updates.age);
+      if (updates.gender !== undefined) dbUpdates.gender = updates.gender;
+      if (updates.joinDate !== undefined) dbUpdates.join_date = updates.joinDate;
+      if (updates.bloodGroup !== undefined) dbUpdates.blood_group = updates.bloodGroup;
+      if (updates.photoUrl !== undefined) dbUpdates.photo_url = updates.photoUrl;
+      if (updates.planType !== undefined) dbUpdates.plan_type = updates.planType;
+      if (updates.monthlyFee !== undefined) dbUpdates.monthly_fee = updates.monthlyFee;
+      if (updates.admissionFee !== undefined) dbUpdates.admission_fee = updates.admissionFee;
+      if (updates.discount !== undefined) dbUpdates.discount = updates.discount;
+      if (updates.expiryDate !== undefined) dbUpdates.expiry_date = updates.expiryDate;
+      if (updates.status !== undefined) dbUpdates.status = updates.status;
 
-  const deleteMember = (id: string) => {
-    setMembers(members.filter(m => m.id !== id));
-  };
-
-  const addPayment = (p: Omit<Payment, 'id'>) => {
-    setPayments([...payments, { ...p, id: Date.now().toString() }]);
-  };
-
-  const addExpense = (e: Omit<Expense, 'id'>) => {
-    setExpenses([...expenses, { ...e, id: Date.now().toString() }]);
-  };
-
-  const markAttendance = (memberId: string, status: 'present' | 'absent', date: string) => {
-    // replace if already exists for same day
-    const existingIndex = attendance.findIndex(a => a.memberId === memberId && a.date === date);
-    if (existingIndex >= 0) {
-      const newAtt = [...attendance];
-      newAtt[existingIndex] = { ...newAtt[existingIndex], status };
-      setAttendance(newAtt);
-    } else {
-      setAttendance([...attendance, { id: Date.now().toString(), memberId, status, date }]);
+      await supabase.from('members').update(dbUpdates).eq('member_id', id);
     }
   };
 
-  const login = (role: Role) => setCurrentUser({ role, name: role === 'owner' ? 'Admin' : 'Staff' });
-  const logout = () => setCurrentUser(null);
+  const deleteMember = async (id: string) => {
+    setMembers(prev => prev.filter(m => m.id !== id));
+    if (supabase) {
+      await supabase.from('members').delete().eq('member_id', id);
+    }
+  };
+
+  const addPayment = async (p: Omit<Payment, 'id'>) => {
+    const tempId = crypto.randomUUID();
+    const newPayment = { ...p, id: tempId };
+    setPayments(prev => [...prev, newPayment]);
+    
+    if (supabase) {
+      const { data } = await supabase.from('payments').insert([{
+        member_id: p.memberId,
+        amount: p.amount,
+        date: p.date,
+        method: p.method,
+        type: p.type
+      }]).select().single();
+      
+      if (data) {
+        setPayments(prev => prev.map(payment => payment.id === tempId ? { ...payment, id: data.id } : payment));
+      }
+    }
+  };
+
+  const addExpense = async (e: Omit<Expense, 'id'>) => {
+    const tempId = crypto.randomUUID();
+    const newExpense = { ...e, id: tempId };
+    setExpenses(prev => [...prev, newExpense]);
+    
+    if (supabase) {
+      const { data } = await supabase.from('expenses').insert([{
+        amount: e.amount,
+        date: e.date,
+        category: e.category,
+        description: e.description
+      }]).select().single();
+      
+      if (data) {
+        setExpenses(prev => prev.map(ex => ex.id === tempId ? { ...ex, id: data.id } : ex));
+      }
+    }
+  };
+
+  const markAttendance = async (memberId: string, status: 'present' | 'absent', date: string) => {
+    const existingIndex = attendance.findIndex(a => a.memberId === memberId && a.date === date);
+    
+    if (existingIndex >= 0) {
+      const existingRecord = attendance[existingIndex];
+      const newAtt = [...attendance];
+      newAtt[existingIndex] = { ...newAtt[existingIndex], status };
+      setAttendance(newAtt);
+      
+      if (supabase) {
+        await supabase.from('attendance').update({ status }).eq('id', existingRecord.id);
+      }
+    } else {
+      const tempId = crypto.randomUUID();
+      setAttendance(prev => [...prev, { id: tempId, memberId, status, date }]);
+      
+      if (supabase) {
+        const { data } = await supabase.from('attendance').insert([{
+          member_id: memberId,
+          date: date,
+          status: status
+        }]).select().single();
+        
+        if (data) {
+          setAttendance(prev => prev.map(a => a.id === tempId ? { ...a, id: data.id } : a));
+        }
+      }
+    }
+  };
+
+  const login = async (email: string, password: string) => {
+    // Hardcoded test credentials
+    if (email === 'admin@admin.com' && password === 'admin123') {
+      setCurrentUser({ role: 'owner', name: 'Admin' });
+      return;
+    }
+
+    if (!supabase) throw new Error("Supabase is not initialized.");
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) {
+      throw error;
+    }
+  };
+
+  const logout = async () => {
+    if (supabase) {
+      await supabase.auth.signOut();
+    }
+    setCurrentUser(null);
+  };
 
   const value = {
     language, setLanguage,
@@ -196,7 +386,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     members, addMember, updateMember, deleteMember,
     payments, addPayment,
     expenses, addExpense,
-    attendance, markAttendance
+    attendance, markAttendance,
+    loading
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
