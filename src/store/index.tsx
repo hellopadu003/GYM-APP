@@ -95,6 +95,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // Auth & Initial Data Fetch
   useEffect(() => {
+    if (localStorage.getItem('dummy_admin_logged_in') === 'true') {
+      setCurrentUser({ role: 'owner', name: 'Admin' });
+      fetchData();
+    }
+
     if (!supabase) {
       console.warn('Supabase not configured. Please add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to environment variables.');
       setLoading(false);
@@ -392,6 +397,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // Hardcoded test credentials
     if (email === 'admin@admin.com' && password === 'admin123') {
       setCurrentUser({ role: 'owner', name: 'Admin' });
+      localStorage.setItem('dummy_admin_logged_in', 'true');
+      fetchData();
       return;
     }
 
@@ -406,6 +413,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (supabase) {
       await supabase.auth.signOut();
     }
+    localStorage.removeItem('dummy_admin_logged_in');
+    setMembers([]);
+    setPayments([]);
+    setExpenses([]);
+    setAttendance([]);
     setCurrentUser(null);
   };
 
